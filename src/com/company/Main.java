@@ -6,7 +6,7 @@ public class Main {
 
     public static void main(String[] args) {
         Configs.BLOCKED_URL.add("parsijoo.ir");
-//        GUI gui = new GUI();
+        GUI gui = new GUI();
 
         try {
             ProxyServer proxyServer = new ProxyServer("127.0.0.1",5000);

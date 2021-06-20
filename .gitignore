@@ -1,4 +1,8 @@
-.idea
 out
 proxy_server.iml
 cached_files/*
+
+/.idea
+/javadoc
+/target
+*.iml

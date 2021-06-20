@@ -33,8 +33,8 @@ public  class RequestHandler implements Runnable {
 
             String url = finalStr.split("\n")[0].trim();
             String out;
-            if (Cache.URL_STR_RESPONSE_CACHE.containsKey(url)) {
-                out = Cache.URL_STR_RESPONSE_CACHE.get(url);
+            if (Configs.CACHE_DISK.containsKey(url)) {
+                out = Configs.CACHE_DISK.get(url);
                 System.out.println("USING CACHE");
                 clientOutputStream.write(out.getBytes());
                 clientOutputStream.write(endOfLine.getBytes());
@@ -53,8 +53,8 @@ public  class RequestHandler implements Runnable {
                 return;
             }
             out = this.handleHttp(finalStr.replaceAll("HTTP/1.1", "HTTP/1.0"), httpUrl.getHost(), httpUrl.getPort());
-            if (!Cache.URL_STR_RESPONSE_CACHE.containsKey(url) && out != "") {
-                Cache.URL_STR_RESPONSE_CACHE.put(url, out);
+            if (!Configs.CACHE_DISK.containsKey(url) && !out.equals("")) {
+                Configs.CACHE_DISK.saveRequest(url, out);
             }
             clientOutputStream.write(out.getBytes());
             clientOutputStream.write(endOfLine.getBytes());
@@ -98,7 +98,7 @@ public  class RequestHandler implements Runnable {
 //            socket.close();
             String line;
             TimeUnit.SECONDS.sleep(1);
-            StringBuilder res = new StringBuilder("");
+            StringBuilder res = new StringBuilder();
 
             while (socket.getInputStream().available() != 0) {
                 String kz = getRawRequestFromSocket(socket);
@@ -116,7 +116,7 @@ public  class RequestHandler implements Runnable {
 
     public void handleHttps( String host, int port) {
 
-        Socket proxy = null;
+        Socket proxy ;
         try {
             proxy = new Socket(host, port);
             String line = "HTTP/1.0 200 Connection established\r\nProxy-Agent: JavaProxy/1.0\r\n\r\n";

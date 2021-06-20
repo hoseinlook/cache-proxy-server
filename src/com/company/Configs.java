@@ -21,8 +21,10 @@ public class Configs {
 
     public  static ArrayList<String> BLOCKED_URL=new ArrayList<>();
 
+    public  static CacheDisk CACHE_DISK= new CacheDisk();
+
     public  static  String getUrlsAsStr(){
-        StringBuilder finall= new StringBuilder("");
+        StringBuilder finall= new StringBuilder();
         for (String item :BLOCKED_URL) {
             finall.append(item).append('\n');
         }

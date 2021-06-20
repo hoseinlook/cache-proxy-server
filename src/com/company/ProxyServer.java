@@ -52,16 +52,10 @@ class RequestHandler implements Runnable {
     @Override
     public void run() {
         try {
-            Socket socket = this.clientSocket;
-            System.out.println("connected " + socket.getInetAddress() + ": " + socket.getPort() + "to server");
+            System.out.println("connected " + this.clientSocket.getInetAddress() + ": " + this.clientSocket.getPort() + "to server");
+            DataOutputStream clientOutputStream = new DataOutputStream(this.clientSocket.getOutputStream());
 
-            DataInputStream clientInputStream = new DataInputStream(clientSocket.getInputStream());
-            DataOutputStream clientOutputStream = new DataOutputStream(clientSocket.getOutputStream());
-
-
-            byte[] mamad = new byte[clientSocket.getInputStream().available()];
-            clientSocket.getInputStream().read(mamad);
-            String finalStr = new String(mamad);
+            String finalStr = getRawRequestFromSocket(this.clientSocket);
 
             if (this.is_blocked(finalStr)) {
                 clientOutputStream.write(Configs.BLOCK_RESPONSE.getBytes());
@@ -69,55 +63,62 @@ class RequestHandler implements Runnable {
                 clientOutputStream.flush();
 
                 clientOutputStream.close();
-                socket.close();
+                this.clientSocket.close();
+                System.out.println("BLOCKED");
                 return;
             }
 
             String url = finalStr.split("\n")[0].trim();
-            String out = null;
+            String out;
             if (Cache.URL_STR_RESPONSE_CACHE.containsKey(url)) {
-                out=Cache.URL_STR_RESPONSE_CACHE.get(url);
+                out = Cache.URL_STR_RESPONSE_CACHE.get(url);
                 System.out.println("USING CACHE");
                 clientOutputStream.write(out.getBytes());
                 clientOutputStream.write(endOfLine.getBytes());
-//            clientOutputStream.write(endOfLine.getBytes());
                 clientOutputStream.flush();
                 clientOutputStream.close();
-                socket.close();
+                this.clientSocket.close();
                 return;
 
             }
             System.out.println("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
             System.out.println(finalStr);
-            String host = new MyRegex().find("http://([^: /]*)", finalStr);
-            String port = new MyRegex().find("http://[^: ]*:(\\d[^\\/]*)", finalStr);
-            int int_port = 80;
-            if (port != null) {
-                int_port = Integer.parseInt(port);
+            HttpUrl httpUrl = new HttpUrl(finalStr);
+            if (httpUrl.getMethod().equals("CONNECT")) {
+                this.handleHttps( httpUrl.getHost(), httpUrl.getPort());
+                System.out.println("https proxy forward");
+                return;
             }
-            if (host == null) {
-                host = new MyRegex().find("host: ([^:]*)", finalStr);
-                port = new MyRegex().find("host: [^:]*:(\\d[^\\/]*)", finalStr);
-                int_port = 443;
-                if (port != null) {
-                    int_port = Integer.parseInt(port.trim());
-                }
-            }
-            out = this.handleHttp(finalStr.replaceAll("HTTP/1.1", "HTTP/1.0"), host, int_port);
-            if (!Cache.URL_STR_RESPONSE_CACHE.containsKey(url) && out!=""){
-                Cache.URL_STR_RESPONSE_CACHE.put(url,out);
+            out = this.handleHttp(finalStr.replaceAll("HTTP/1.1", "HTTP/1.0"), httpUrl.getHost(), httpUrl.getPort());
+            if (!Cache.URL_STR_RESPONSE_CACHE.containsKey(url) && out != "") {
+                Cache.URL_STR_RESPONSE_CACHE.put(url, out);
             }
             clientOutputStream.write(out.getBytes());
             clientOutputStream.write(endOfLine.getBytes());
 //            clientOutputStream.write(endOfLine.getBytes());
             clientOutputStream.flush();
             clientOutputStream.close();
-            socket.close();
+            this.clientSocket.close();
 
 
         } catch (IOException e) {
             e.printStackTrace();
         }
+
+
+    }
+
+    private String getRawRequestFromSocket(Socket clientSocket) throws IOException {
+        byte[] mamad = new byte[clientSocket.getInputStream().available()];
+        clientSocket.getInputStream().read(mamad);
+        return new String(mamad);
+    }
+
+    public boolean is_blocked(String body_str) {
+        for (String item : Configs.BLOCKED_URL) {
+            if (body_str.contains(item)) return true;
+        }
+        return false;
     }
 
     public String handleHttp(String request, String url, int port) {
@@ -137,30 +138,12 @@ class RequestHandler implements Runnable {
             StringBuilder res = new StringBuilder("");
 
             while (socket.getInputStream().available() != 0) {
-                byte[] mamad = new byte[socket.getInputStream().available()];
-                socket.getInputStream().read(mamad);
-                String kz = new String(mamad);
+                String kz = getRawRequestFromSocket(socket);
                 System.out.println(kz);
                 res.append(kz);
             }
             socket.close();
             return res.toString();
-
-
-//            BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-//            int sizee = reader.read();
-//            System.out.println(sizee);
-//            while (true) {
-//                String x = reader.readLine();
-////                System.out.println(x);
-//                if (x == null) {
-//                    System.out.println(res);
-//                    socket.close();
-//                    return res.toString();
-//                }
-//                res.append(x).append("\r\n");
-//            }
-
 
         } catch (IOException | InterruptedException e) {
             e.printStackTrace();
@@ -168,28 +151,104 @@ class RequestHandler implements Runnable {
         return null;
     }
 
-    public boolean is_blocked(String body_str) {
-        for (String item : Configs.BLOCKED_URL) {
-            if (body_str.contains(item)) return true;
+    public void handleHttps( String host, int port) {
+
+        Socket proxy = null;
+        try {
+            proxy = new Socket(host, port);
+            String line = "HTTP/1.0 200 Connection established\r\nProxy-Agent: JavaProxy/1.0\r\n\r\n";
+            String line2 = "HTTP/1.0 200 Connection established\r\n" +
+                    "Proxy-Agent: ProxyServer/1.0\r\n" +
+                    "\r\n";
+            BufferedWriter proxyToClient = new BufferedWriter(new OutputStreamWriter(this.clientSocket.getOutputStream()));
+            proxyToClient.write(line);
+            proxyToClient.flush();
+
+            HttpsTransformer forwarder1 = new HttpsTransformer(this.clientSocket.getInputStream(), proxy.getOutputStream());
+            Thread thread1 = new Thread(forwarder1);
+            HttpsTransformer forwarder2 = new HttpsTransformer(proxy.getInputStream(), this.clientSocket.getOutputStream());
+
+            thread1.start();
+            forwarder2.run();
+            this.clientSocket.close();
+            proxy.close();
+
+
+        } catch (IOException e) {
+            e.printStackTrace();
         }
-        return false;
+
+    }
+
+
+}
+
+
+class HttpUrl {
+
+    private final String rawRequest;
+    private String host;
+    private int port;
+    private String method;
+
+
+    public HttpUrl(String rawRequest) {
+        this.rawRequest = rawRequest;
+        this.initial();
+
+    }
+
+    private void initial() {
+        this.method = this.rawRequest.split(" ")[0];
+        if (this.method.equals("CONNECT")) {
+            String url = rawRequest.split(" ")[1];
+            this.host = url.split(":")[0];
+            this.port = Integer.parseInt(url.split(":")[1]);
+            return;
+        }
+        System.out.println("METHOD " + this.method);
+        this.host = new MyRegex().find("http://([^: /]*)", this.rawRequest);
+        String strPort = new MyRegex().find("http://[^: ]*:(\\d[^\\/]*)", this.rawRequest);
+        this.port = 80;
+        if (strPort != null) {
+            this.port = Integer.parseInt(strPort);
+        }
+        if (this.host == null) {
+            this.host = new MyRegex().find("host: ([^:]*)", this.rawRequest);
+            strPort = new MyRegex().find("host: [^:]*:(\\d[^\\/]*)", this.rawRequest);
+            this.port = 443;
+            if (strPort != null) {
+                this.port = Integer.parseInt(strPort.trim());
+            }
+        }
+    }
+
+    public String getHost() {
+        return this.host;
+    }
+
+    public int getPort() {
+        return this.port;
+    }
+
+    public String getMethod() {
+        return this.method;
     }
 }
 
 
-
-
-class DataForwarder implements Runnable{
+class HttpsTransformer implements Runnable {
     private final InputStream input;
     private final OutputStream output;
 
-    public DataForwarder(InputStream input, OutputStream output) {
+    public HttpsTransformer(InputStream input, OutputStream output) {
         this.input = input;
         this.output = output;
     }
 
     @Override
     public void run() {
+        System.out.println("https thread connection");
         try {
             byte[] buffer = new byte[4096];
             int read = 1;
